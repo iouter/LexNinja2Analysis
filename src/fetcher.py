@@ -48,39 +48,45 @@ def fetch_events(api_key: str, project_id: str, limit: int = 1000, offset: int =
 
     return []
 
+
 def extract_raw_run_data(event: Dict) -> Optional[Dict]:
+    """
+    从 PostHog 事件提取 raw_data。
+    直接复制 properties 中的所有字段，并补充 applicant_payload 和 private_contributions。
+    """
     properties = event.get('properties', {})
     if not properties:
         logging.warning("事件缺少 properties 字段")
         return None
 
     # ---- 提取 applicant_payload ----
-    payload = None
+    applicant_payload = None
     if 'payload' in properties:
         payload = properties['payload']
         if isinstance(payload, dict) and 'applicant_payload' in payload:
-            payload = payload['applicant_payload']
+            applicant_payload = payload['applicant_payload']
     elif 'applicant_payload' in properties:
-        payload = properties['applicant_payload']
+        applicant_payload = properties['applicant_payload']
 
-    if not payload:
+    if not applicant_payload:
         logging.warning("未找到 applicant_payload")
         return None
 
-    if isinstance(payload, str):
+    if isinstance(applicant_payload, str):
         try:
-            payload = json.loads(payload)
+            applicant_payload = json.loads(applicant_payload)
         except:
             logging.warning("applicant_payload 不是有效 JSON")
             return None
 
-    if not isinstance(payload, dict):
-        logging.warning(f"applicant_payload 不是 dict，类型: {type(payload)}")
+    if not isinstance(applicant_payload, dict):
+        logging.warning(f"applicant_payload 不是 dict，类型: {type(applicant_payload)}")
         return None
 
-    run_history = payload.get('run_history')
-    if run_history is None:
-        run_history = payload
+    # 检查 run_history 是否存在
+    if applicant_payload.get('run_history') is None:
+        logging.warning("applicant_payload 中缺少 run_history")
+        return None
 
     # ---- 提取 private_contributions ----
     private_contributions = {}
@@ -88,29 +94,31 @@ def extract_raw_run_data(event: Dict) -> Optional[Dict]:
         private_contributions = properties['payload'].get('private_contributions', {})
     if not private_contributions and 'private_contributions' in properties:
         private_contributions = properties['private_contributions']
+
     if isinstance(private_contributions, str):
         try:
             private_contributions = json.loads(private_contributions)
         except:
             private_contributions = {}
 
-    # ---- 构建 raw_data：复制所有 properties 字段，然后覆盖特定字段 ----
-    raw_data = properties.copy()
-    raw_data['applicant_payload'] = {'run_history': run_history}
+    # ---- 构建 raw_data：直接复制 properties，再补充两个字段 ----
+    raw_data = dict(properties)  # 复制所有 properties 字段
+    raw_data['applicant_payload'] = applicant_payload
     raw_data['private_contributions'] = private_contributions
 
+    # 必须存在 game_version，否则不是有效对局
     if raw_data.get('game_version') is None:
         logging.warning("缺少 game_version，跳过")
         return None
 
     return raw_data
 
+
 def fetch_new_runs(db_path: str, api_key: str, project_id: str, max_fetch: Optional[int] = None) -> int:
     conn = init_db(db_path)
     offset = 0
     total_fetched = 0
     new_count = 0
-    printed_first = False
 
     while max_fetch is None or total_fetched < max_fetch:
         limit = 1000
@@ -137,17 +145,6 @@ def fetch_new_runs(db_path: str, api_key: str, project_id: str, max_fetch: Optio
             raw_data = extract_raw_run_data(ev)
             if raw_data is None:
                 continue
-
-            if not printed_first:
-                print("=" * 80)
-                print("🔍 调试：打印第一条 raw_data 完整内容")
-                try:
-                    print(json.dumps(raw_data, indent=2, ensure_ascii=False, default=str))
-                except Exception as e:
-                    print(f"打印失败: {e}")
-                    print(f"raw_data keys: {list(raw_data.keys())}")
-                print("=" * 80)
-                printed_first = True
 
             compressed = compress_run(raw_data)
             if compressed is None:
