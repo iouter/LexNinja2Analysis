@@ -2,8 +2,8 @@ name: 每日报告生成
 
 on:
   schedule:
-    - cron: '0 0 * * *'    # 每天 UTC 0 点
-  workflow_dispatch:       # 手动触发
+    - cron: '0 0 * * *'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -21,15 +21,15 @@ jobs:
         run: uv sync
 
       - name: 恢复 SQLite 缓存
-        uses: actions/cache@v5
-        id: cache-db
+        uses: actions/cache/restore@v4
+        id: restore-cache
         with:
           path: data.db
           key: db-cache-${{ github.ref_name }}
           restore-keys: |
             db-cache-${{ github.ref_name }}
 
-      - name: 检查数据库文件（验证缓存是否命中）
+      - name: 检查数据库文件
         run: |
           if [ -f "data.db" ]; then
             echo "✅ 成功从缓存恢复数据库，大小："
@@ -44,6 +44,12 @@ jobs:
           POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
           DB_PATH: data.db
         run: uv run python main.py
+
+      - name: 保存 SQLite 缓存（覆盖更新）
+        uses: actions/cache/save@v4
+        with:
+          path: data.db
+          key: db-cache-${{ github.ref_name }}
 
       - name: 上传报告
         uses: actions/upload-artifact@v4
