@@ -5,7 +5,6 @@ from typing import Optional, List, Dict
 from src.compress import compress_run
 from src.db import insert_run, init_db
 
-# 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def fetch_events(api_key: str, project_id: str, limit: int = 1000, offset: int = 0) -> List[Dict]:
@@ -29,12 +28,33 @@ def fetch_events(api_key: str, project_id: str, limit: int = 1000, offset: int =
     logging.info(f"获取到 {len(results)} 条事件")
     return results
 
-def extract_raw_run_data(event: Dict) -> Optional[Dict]:
+def extract_raw_run_data(event: Dict, debug: bool = False) -> Optional[Dict]:
     """从 PostHog 事件中提取原始运行数据，适应多种嵌套结构。"""
     properties = event.get('properties', {})
     if not properties:
         logging.warning("事件缺少 properties 字段")
         return None
+
+    if debug:
+        logging.info(f"--- 调试信息 (事件ID: {event.get('id')}) ---")
+        logging.info(f"event 顶层 keys: {list(event.keys())}")
+        logging.info(f"properties keys: {list(properties.keys())}")
+        # 检查 applicant_payload
+        if 'applicant_payload' in properties:
+            ap = properties['applicant_payload']
+            logging.info(f"applicant_payload 类型: {type(ap)}")
+            if isinstance(ap, dict):
+                logging.info(f"applicant_payload keys: {list(ap.keys())}")
+            elif isinstance(ap, str):
+                logging.info("applicant_payload 是字符串，尝试解析...")
+        # 检查 private_contributions
+        if 'private_contributions' in properties:
+            pc = properties['private_contributions']
+            logging.info(f"private_contributions 类型: {type(pc)}")
+            if isinstance(pc, dict):
+                logging.info(f"private_contributions keys: {list(pc.keys())}")
+        else:
+            logging.warning("properties 中没有 private_contributions 字段")
 
     # 尝试提取 applicant_payload
     applicant_payload = None
@@ -87,6 +107,7 @@ def fetch_new_runs(db_path: str, api_key: str, project_id: str, max_fetch: int =
     total_fetched = 0
     new_count = 0
     inserted_this_page = 0
+    debug_done = False
 
     while total_fetched < max_fetch:
         limit = min(1000, max_fetch - total_fetched)
@@ -102,14 +123,23 @@ def fetch_new_runs(db_path: str, api_key: str, project_id: str, max_fetch: int =
                 logging.warning("事件缺少 id，跳过")
                 continue
 
-            raw_data = extract_raw_run_data(ev)
+            # 只在第一页的第一条有效事件打印调试信息
+            if offset == 0 and not debug_done:
+                # 但此时我们还没提取，我们可以传递 debug 标志
+                raw_data = extract_raw_run_data(ev, debug=True)
+                debug_done = True
+                if raw_data is None:
+                    logging.warning("调试数据提取失败，跳过")
+                    continue
+            else:
+                raw_data = extract_raw_run_data(ev, debug=False)
+
             if raw_data is None:
                 logging.debug("数据提取失败，跳过")
                 continue
 
             compressed = compress_run(raw_data)
             if compressed is None:
-                # compress_run 内部已打印日志，这里不再重复
                 continue
 
             inserted = insert_run(conn, event_id, compressed)
