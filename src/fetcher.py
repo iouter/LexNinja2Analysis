@@ -128,6 +128,7 @@ def fetch_new_runs(db_path: str, api_key: str, project_id: str, max_fetch: Optio
     offset = 0
     total_fetched = 0
     new_count = 0
+    printed_first = False   # 标记是否已打印
 
     while max_fetch is None or total_fetched < max_fetch:
         limit = 1000
@@ -155,6 +156,20 @@ def fetch_new_runs(db_path: str, api_key: str, project_id: str, max_fetch: Optio
             if raw_data is None:
                 continue
 
+            # 🔍 打印第一条完整 raw_data（调试用）
+            if not printed_first:
+                print("=" * 80)
+                print("🔍 调试：打印第一条 raw_data 完整内容")
+                try:
+                    print(json.dumps(raw_data, indent=2, ensure_ascii=False, default=str))
+                except Exception as e:
+                    print(f"打印失败: {e}")
+                    print(f"raw_data keys: {list(raw_data.keys())}")
+                print("=" * 80)
+                printed_first = True
+                # 如需在打印后停止，取消下面注释：
+                # break
+
             compressed = compress_run(raw_data)
             if compressed is None:
                 continue
@@ -163,6 +178,9 @@ def fetch_new_runs(db_path: str, api_key: str, project_id: str, max_fetch: Optio
             if inserted:
                 new_count += 1
                 inserted_this_page += 1
+
+        # 如果上面的 break 被取消，这里也需要跳出外层循环
+        # if printed_first: break
 
         total_fetched += len(events)
         offset += len(events)
