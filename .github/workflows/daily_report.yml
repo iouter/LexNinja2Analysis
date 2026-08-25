@@ -29,6 +29,7 @@ jobs:
           key: db-cache-${{ github.ref_name }}
           restore-keys: |
             db-cache-${{ github.ref_name }}
+          save-always: true
 
       - name: 检查数据库文件（验证缓存是否命中）
         run: |
