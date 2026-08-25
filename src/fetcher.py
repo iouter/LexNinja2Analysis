@@ -2,7 +2,6 @@ import requests
 import time
 import logging
 import json
-import os
 from typing import Optional, List, Dict
 from src.compress import compress_run
 from src.db import insert_run, init_db
@@ -55,70 +54,52 @@ def extract_raw_run_data(event: Dict) -> Optional[Dict]:
         logging.warning("事件缺少 properties 字段")
         return None
 
-    payload = properties.get('payload')
-    if payload is None:
-        logging.warning("事件缺少 payload 字段")
+    # ---- 提取 applicant_payload ----
+    payload = None
+    if 'payload' in properties:
+        payload = properties['payload']
+        if isinstance(payload, dict) and 'applicant_payload' in payload:
+            payload = payload['applicant_payload']
+    elif 'applicant_payload' in properties:
+        payload = properties['applicant_payload']
+
+    if not payload:
+        logging.warning("未找到 applicant_payload")
         return None
 
     if isinstance(payload, str):
         try:
             payload = json.loads(payload)
         except:
-            logging.warning("payload 字符串不是有效 JSON")
+            logging.warning("applicant_payload 不是有效 JSON")
             return None
 
     if not isinstance(payload, dict):
-        logging.warning(f"payload 不是 dict，类型: {type(payload)}")
+        logging.warning(f"applicant_payload 不是 dict，类型: {type(payload)}")
         return None
 
-    # 提取 applicant_payload
-    applicant_payload = payload.get('applicant_payload')
-    if applicant_payload is None:
-        logging.warning("payload 中缺少 applicant_payload")
-        return None
-
-    if isinstance(applicant_payload, str):
-        try:
-            applicant_payload = json.loads(applicant_payload)
-        except:
-            logging.warning("applicant_payload 字符串不是有效 JSON")
-            return None
-
-    if not isinstance(applicant_payload, dict):
-        logging.warning(f"applicant_payload 不是 dict，类型: {type(applicant_payload)}")
-        return None
-
-    # 从 applicant_payload 中提取 run_history
-    run_history = applicant_payload.get('run_history')
+    run_history = payload.get('run_history')
     if run_history is None:
-        logging.warning("applicant_payload 中缺少 run_history")
-        return None
+        run_history = payload
 
-    # 从 payload 顶层提取 private_contributions
-    private_contributions = payload.get('private_contributions', {})
+    # ---- 提取 private_contributions ----
+    private_contributions = {}
+    if 'payload' in properties and isinstance(properties['payload'], dict):
+        private_contributions = properties['payload'].get('private_contributions', {})
+    if not private_contributions and 'private_contributions' in properties:
+        private_contributions = properties['private_contributions']
     if isinstance(private_contributions, str):
         try:
             private_contributions = json.loads(private_contributions)
         except:
             private_contributions = {}
 
-    # 顶层字段从 properties 读取
-    raw_data = {
-        'game_version': properties.get('game_version'),
-        'run_game_mode': properties.get('run_game_mode'),
-        'run_ascension': properties.get('run_ascension'),
-        'run_character_ids': properties.get('run_character_ids'),
-        'run_player_count': properties.get('run_player_count'),
-        'run_floor_reached': properties.get('run_floor_reached'),
-        'run_reload_count': properties.get('run_reload_count'),
-        'run_time_seconds': properties.get('run_time_seconds'),
-        'is_abandoned': properties.get('is_abandoned', False),
-        'is_victory': properties.get('is_victory', False),
-        'applicant_payload': applicant_payload,
-        'private_contributions': private_contributions
-    }
+    # ---- 构建 raw_data：复制所有 properties 字段，然后覆盖特定字段 ----
+    raw_data = properties.copy()
+    raw_data['applicant_payload'] = {'run_history': run_history}
+    raw_data['private_contributions'] = private_contributions
 
-    if raw_data['game_version'] is None:
+    if raw_data.get('game_version') is None:
         logging.warning("缺少 game_version，跳过")
         return None
 
@@ -154,26 +135,19 @@ def fetch_new_runs(db_path: str, api_key: str, project_id: str, max_fetch: Optio
                 continue
 
             raw_data = extract_raw_run_data(ev)
-
-            # 🔍 强制打印第一条数据（无论是否成功）
-            if not printed_first:
-                print("=" * 80, flush=True)
-                print("🔍 调试：第一条事件 raw_data 内容", flush=True)
-                if raw_data is None:
-                    print("raw_data 为 None", flush=True)
-                else:
-                    try:
-                        print(json.dumps(raw_data, indent=2, ensure_ascii=False, default=str), flush=True)
-                    except Exception as e:
-                        print(f"打印 raw_data 失败: {e}", flush=True)
-                        print(f"raw_data keys: {list(raw_data.keys())}", flush=True)
-                print("=" * 80, flush=True)
-                printed_first = True
-                # 如果只希望处理一条后退出，取消注释下面 break
-                # break
-
             if raw_data is None:
                 continue
+
+            if not printed_first:
+                print("=" * 80)
+                print("🔍 调试：打印第一条 raw_data 完整内容")
+                try:
+                    print(json.dumps(raw_data, indent=2, ensure_ascii=False, default=str))
+                except Exception as e:
+                    print(f"打印失败: {e}")
+                    print(f"raw_data keys: {list(raw_data.keys())}")
+                print("=" * 80)
+                printed_first = True
 
             compressed = compress_run(raw_data)
             if compressed is None:
@@ -183,10 +157,6 @@ def fetch_new_runs(db_path: str, api_key: str, project_id: str, max_fetch: Optio
             if inserted:
                 new_count += 1
                 inserted_this_page += 1
-
-        # 如果上面的 break 被取消，这里也需要跳出外层循环
-        # if printed_first:
-        #     break
 
         total_fetched += len(events)
         offset += len(events)
