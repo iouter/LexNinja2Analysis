@@ -70,12 +70,30 @@ def extract_raw_run_data(event: Dict) -> Optional[Dict]:
         logging.warning(f"payload 不是 dict，类型: {type(payload)}")
         return None
 
-    # 从 payload 中提取 run_history 和 private_contributions
-    run_history = payload.get('run_history')
-    if run_history is None:
-        logging.warning("payload 中缺少 run_history")
+    # 提取 applicant_payload
+    applicant_payload = payload.get('applicant_payload')
+    if applicant_payload is None:
+        logging.warning("payload 中缺少 applicant_payload")
         return None
 
+    if isinstance(applicant_payload, str):
+        try:
+            applicant_payload = json.loads(applicant_payload)
+        except:
+            logging.warning("applicant_payload 字符串不是有效 JSON")
+            return None
+
+    if not isinstance(applicant_payload, dict):
+        logging.warning(f"applicant_payload 不是 dict，类型: {type(applicant_payload)}")
+        return None
+
+    # 从 applicant_payload 中提取 run_history
+    run_history = applicant_payload.get('run_history')
+    if run_history is None:
+        logging.warning("applicant_payload 中缺少 run_history")
+        return None
+
+    # 从 payload 顶层提取 private_contributions
     private_contributions = payload.get('private_contributions', {})
     if isinstance(private_contributions, str):
         try:
@@ -95,7 +113,7 @@ def extract_raw_run_data(event: Dict) -> Optional[Dict]:
         'run_time_seconds': properties.get('run_time_seconds'),
         'is_abandoned': properties.get('is_abandoned', False),
         'is_victory': properties.get('is_victory', False),
-        'applicant_payload': {'run_history': run_history},
+        'applicant_payload': applicant_payload,  # 直接传入整个 applicant_payload
         'private_contributions': private_contributions
     }
 
@@ -151,17 +169,14 @@ def fetch_new_runs(db_path: str, api_key: str, project_id: str, max_fetch: Optio
 
         logging.info(f"本页处理: 事件 {len(events)}，新增 {inserted_this_page}，累计新增 {new_count}")
 
-        # 停止条件：本页无新增且不是第一页（说明已追平历史）
         if inserted_this_page == 0 and offset > 0:
             logging.info("本页无新数据，已追平历史记录，停止拉取")
             break
 
-        # 如果返回数量小于请求的 limit，说明是最后一页
         if len(events) < 1000:
             logging.info("已到达最后一页")
             break
 
-        # 页间延迟，避免 API 限流
         time.sleep(0.5)
 
     conn.close()
