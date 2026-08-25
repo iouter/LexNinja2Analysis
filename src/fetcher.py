@@ -8,7 +8,10 @@ from src.db import insert_run, init_db
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def fetch_events(api_key: str, project_id: str, limit: int = 1000, offset: int = 0) -> List[Dict]:
+def fetch_events(api_key: str, project_id: str, limit: int = 1000, offset: int = 0, retries: int = 3) -> List[Dict]:
+    """
+    从 PostHog 获取事件，内置重试机制。
+    """
     url = f"https://us.posthog.com/api/projects/{project_id}/events/"
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -20,14 +23,33 @@ def fetch_events(api_key: str, project_id: str, limit: int = 1000, offset: int =
         "limit": limit,
         "offset": offset
     }
-    logging.info(f"正在请求 offset={offset}, limit={limit}")
-    response = requests.get(url, headers=headers, params=params, timeout=30)
-    response.encoding = 'utf-8'
-    response.raise_for_status()
-    data = response.json()
-    results = data.get('results', [])
-    logging.info(f"获取到 {len(results)} 条事件")
-    return results
+
+    for attempt in range(1, retries + 1):
+        try:
+            logging.info(f"正在请求 offset={offset}, limit={limit} (尝试 {attempt}/{retries})")
+            response = requests.get(url, headers=headers, params=params, timeout=60)  # 超时设为60秒
+            response.encoding = 'utf-8'
+            response.raise_for_status()
+            data = response.json()
+            results = data.get('results', [])
+            logging.info(f"获取到 {len(results)} 条事件")
+            return results
+        except requests.exceptions.Timeout:
+            logging.warning(f"请求超时 (尝试 {attempt}/{retries})")
+            if attempt == retries:
+                raise
+            wait_time = 2 ** (attempt - 1)  # 1, 2, 4 秒
+            logging.info(f"等待 {wait_time} 秒后重试...")
+            time.sleep(wait_time)
+        except requests.exceptions.RequestException as e:
+            logging.warning(f"请求异常: {e} (尝试 {attempt}/{retries})")
+            if attempt == retries:
+                raise
+            wait_time = 2 ** (attempt - 1)
+            logging.info(f"等待 {wait_time} 秒后重试...")
+            time.sleep(wait_time)
+
+    return []  # 不会执行到这里
 
 def extract_raw_run_data(event: Dict, debug: bool = False) -> Optional[Dict]:
     """从 PostHog 事件中提取原始运行数据，适应多种嵌套结构。"""
@@ -41,10 +63,13 @@ def extract_raw_run_data(event: Dict, debug: bool = False) -> Optional[Dict]:
         logging.info("=" * 70)
         logging.info("🔍 调试模式：打印第一条事件的 properties 完整内容")
         logging.info("=" * 70)
-        # 打印 properties 的 JSON 格式（缩进便于阅读）
         try:
             properties_str = json.dumps(properties, indent=2, ensure_ascii=False, default=str)
-            logging.info(f"properties:\n{properties_str}")
+            # 只打印前 5000 个字符，避免日志过大
+            if len(properties_str) > 5000:
+                logging.info(f"properties (截断):\n{properties_str[:5000]}...")
+            else:
+                logging.info(f"properties:\n{properties_str}")
         except Exception as e:
             logging.warning(f"无法序列化 properties: {e}")
             logging.info(f"properties keys: {list(properties.keys())}")
@@ -55,10 +80,12 @@ def extract_raw_run_data(event: Dict, debug: bool = False) -> Optional[Dict]:
             logging.info(f"payload 类型: {type(payload)}")
             if isinstance(payload, dict):
                 logging.info(f"payload keys: {list(payload.keys())}")
-                # 如果 payload 是字典，打印其内容
                 try:
                     payload_str = json.dumps(payload, indent=2, ensure_ascii=False, default=str)
-                    logging.info(f"payload 内容:\n{payload_str}")
+                    if len(payload_str) > 2000:
+                        logging.info(f"payload 内容 (截断):\n{payload_str[:2000]}...")
+                    else:
+                        logging.info(f"payload 内容:\n{payload_str}")
                 except:
                     pass
             elif isinstance(payload, str):
@@ -89,13 +116,15 @@ def extract_raw_run_data(event: Dict, debug: bool = False) -> Optional[Dict]:
                 logging.info(f"private_contributions keys: {list(pc.keys())}")
                 try:
                     pc_str = json.dumps(pc, indent=2, ensure_ascii=False, default=str)
-                    logging.info(f"private_contributions 内容:\n{pc_str}")
+                    if len(pc_str) > 2000:
+                        logging.info(f"private_contributions 内容 (截断):\n{pc_str[:2000]}...")
+                    else:
+                        logging.info(f"private_contributions 内容:\n{pc_str}")
                 except:
                     pass
         else:
             logging.warning("properties 中没有 private_contributions 字段")
             logging.info("尝试查找其他可能包含运行数据的字段...")
-            # 打印所有可能是数据容器的字段
             for key in properties.keys():
                 if 'payload' in key.lower() or 'run' in key.lower() or 'history' in key.lower():
                     logging.info(f"可能相关的字段: {key}, 类型: {type(properties[key])}")
@@ -157,7 +186,12 @@ def fetch_new_runs(db_path: str, api_key: str, project_id: str, max_fetch: int =
 
     while total_fetched < max_fetch:
         limit = min(1000, max_fetch - total_fetched)
-        events = fetch_events(api_key, project_id, limit=limit, offset=offset)
+        try:
+            events = fetch_events(api_key, project_id, limit=limit, offset=offset)
+        except Exception as e:
+            logging.error(f"获取事件失败: {e}")
+            break
+
         if not events:
             logging.info("API 返回空列表，停止拉取")
             break
