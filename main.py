@@ -19,7 +19,8 @@ def main():
     logging.info(f"数据库路径: {db_path}")
 
     logging.info("开始拉取新对局...")
-    new_count = fetch_new_runs(db_path, api_key, project_id, max_fetch=5000)
+    # 不设上限，拉取所有新数据
+    new_count = fetch_new_runs(db_path, api_key, project_id, max_fetch=None)
     logging.info(f"新增 {new_count} 条记录")
 
     conn = init_db(db_path)

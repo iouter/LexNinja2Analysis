@@ -49,22 +49,16 @@ def fetch_events(api_key: str, project_id: str, limit: int = 1000, offset: int =
     return []
 
 def extract_raw_run_data(event: Dict) -> Optional[Dict]:
-    """
-    从 PostHog 事件中提取原始运行数据。
-    顶层字段从 properties 获取，run_history 和 private_contributions 从 properties.payload 获取。
-    """
     properties = event.get('properties', {})
     if not properties:
         logging.warning("事件缺少 properties 字段")
         return None
 
-    # 获取 payload
     payload = properties.get('payload')
     if payload is None:
         logging.warning("事件缺少 payload 字段")
         return None
 
-    # 如果 payload 是字符串，尝试解析为 dict
     if isinstance(payload, str):
         try:
             payload = json.loads(payload)
@@ -89,7 +83,7 @@ def extract_raw_run_data(event: Dict) -> Optional[Dict]:
         except:
             private_contributions = {}
 
-    # 构建 raw_data，顶层字段从 properties 取，applicant_payload 包装 run_history
+    # 顶层字段从 properties 读取
     raw_data = {
         'game_version': properties.get('game_version'),
         'run_game_mode': properties.get('run_game_mode'),
@@ -111,15 +105,17 @@ def extract_raw_run_data(event: Dict) -> Optional[Dict]:
 
     return raw_data
 
-def fetch_new_runs(db_path: str, api_key: str, project_id: str, max_fetch: int = 5000) -> int:
+def fetch_new_runs(db_path: str, api_key: str, project_id: str, max_fetch: Optional[int] = None) -> int:
     conn = init_db(db_path)
     offset = 0
     total_fetched = 0
     new_count = 0
-    inserted_this_page = 0
 
-    while total_fetched < max_fetch:
-        limit = min(1000, max_fetch - total_fetched)
+    while max_fetch is None or total_fetched < max_fetch:
+        limit = 1000
+        if max_fetch is not None:
+            limit = min(1000, max_fetch - total_fetched)
+
         try:
             events = fetch_events(api_key, project_id, limit=limit, offset=offset)
         except Exception as e:
@@ -155,14 +151,17 @@ def fetch_new_runs(db_path: str, api_key: str, project_id: str, max_fetch: int =
 
         logging.info(f"本页处理: 事件 {len(events)}，新增 {inserted_this_page}，累计新增 {new_count}")
 
+        # 停止条件：本页无新增且不是第一页（说明已追平历史）
         if inserted_this_page == 0 and offset > 0:
             logging.info("本页无新数据，已追平历史记录，停止拉取")
             break
 
+        # 如果返回数量小于请求的 limit，说明是最后一页
         if len(events) < 1000:
             logging.info("已到达最后一页")
             break
 
+        # 页间延迟，避免 API 限流
         time.sleep(0.5)
 
     conn.close()
