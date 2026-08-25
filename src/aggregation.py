@@ -1,5 +1,6 @@
 from src.utils import GAME_ITEMS, get_card, is_valid_acts
 from typing import Any
+import json
 
 def aggregation(compressed_data: list[dict]) -> list[dict]:
     aggregation_list = []
@@ -34,6 +35,12 @@ def aggregation(compressed_data: list[dict]) -> list[dict]:
         player_remove_counters: dict[str, int] = {}
 
         players = data["players"]
+        first_player = next(iter(players.values()))
+        print("=" * 60)
+        print("First player keys:", list(first_player.keys()))
+        print("First player content (truncated):")
+        print(json.dumps(first_player, indent=2, ensure_ascii=False, default=str)[:1000])
+        print("=" * 60)
         for net_id, player in players.items():
             deck = player["deck"]
             deck_counts.append(len(deck))
