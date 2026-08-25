@@ -57,7 +57,6 @@ class RunDataCompressor:
     def _compress(self):
         run_history = self._get_run_history()
         self._copy_raw_field("game_version")
-        self._copy_raw_field("game_language")
         self._copy_raw_field("ritsulib_version")
         self._extract_lexninja2_field("version", extract_lexninja2_version)
         self._extract_lexninja2_field("is_challenge_mode")
