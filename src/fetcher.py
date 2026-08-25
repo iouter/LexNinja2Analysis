@@ -1,6 +1,7 @@
 import requests
 import time
 import logging
+import json
 from typing import Optional, List, Dict
 from src.compress import compress_run
 from src.db import insert_run, init_db
@@ -35,27 +36,73 @@ def extract_raw_run_data(event: Dict, debug: bool = False) -> Optional[Dict]:
         logging.warning("事件缺少 properties 字段")
         return None
 
+    # 🔍 调试信息：打印第一条事件的完整结构
     if debug:
-        logging.info(f"--- 调试信息 (事件ID: {event.get('id')}) ---")
-        logging.info(f"event 顶层 keys: {list(event.keys())}")
-        logging.info(f"properties keys: {list(properties.keys())}")
-        # 检查 applicant_payload
+        logging.info("=" * 70)
+        logging.info("🔍 调试模式：打印第一条事件的 properties 完整内容")
+        logging.info("=" * 70)
+        # 打印 properties 的 JSON 格式（缩进便于阅读）
+        try:
+            properties_str = json.dumps(properties, indent=2, ensure_ascii=False, default=str)
+            logging.info(f"properties:\n{properties_str}")
+        except Exception as e:
+            logging.warning(f"无法序列化 properties: {e}")
+            logging.info(f"properties keys: {list(properties.keys())}")
+
+        # 特别检查 payload 字段
+        if 'payload' in properties:
+            payload = properties['payload']
+            logging.info(f"payload 类型: {type(payload)}")
+            if isinstance(payload, dict):
+                logging.info(f"payload keys: {list(payload.keys())}")
+                # 如果 payload 是字典，打印其内容
+                try:
+                    payload_str = json.dumps(payload, indent=2, ensure_ascii=False, default=str)
+                    logging.info(f"payload 内容:\n{payload_str}")
+                except:
+                    pass
+            elif isinstance(payload, str):
+                logging.info(f"payload 是字符串，长度: {len(payload)}")
+                if len(payload) < 2000:
+                    logging.info(f"payload 内容: {payload}")
+                else:
+                    logging.info(f"payload 前500字符: {payload[:500]}...")
+
+        # 特别检查 applicant_payload 字段（可能存在）
         if 'applicant_payload' in properties:
             ap = properties['applicant_payload']
             logging.info(f"applicant_payload 类型: {type(ap)}")
             if isinstance(ap, dict):
                 logging.info(f"applicant_payload keys: {list(ap.keys())}")
             elif isinstance(ap, str):
-                logging.info("applicant_payload 是字符串，尝试解析...")
-        # 检查 private_contributions
+                logging.info(f"applicant_payload 是字符串，长度: {len(ap)}")
+                if len(ap) < 2000:
+                    logging.info(f"applicant_payload 内容: {ap}")
+                else:
+                    logging.info(f"applicant_payload 前500字符: {ap[:500]}...")
+
+        # 特别检查 private_contributions 字段
         if 'private_contributions' in properties:
             pc = properties['private_contributions']
             logging.info(f"private_contributions 类型: {type(pc)}")
             if isinstance(pc, dict):
                 logging.info(f"private_contributions keys: {list(pc.keys())}")
+                try:
+                    pc_str = json.dumps(pc, indent=2, ensure_ascii=False, default=str)
+                    logging.info(f"private_contributions 内容:\n{pc_str}")
+                except:
+                    pass
         else:
             logging.warning("properties 中没有 private_contributions 字段")
+            logging.info("尝试查找其他可能包含运行数据的字段...")
+            # 打印所有可能是数据容器的字段
+            for key in properties.keys():
+                if 'payload' in key.lower() or 'run' in key.lower() or 'history' in key.lower():
+                    logging.info(f"可能相关的字段: {key}, 类型: {type(properties[key])}")
 
+        logging.info("=" * 70)
+
+    # --- 原有的提取逻辑 ---
     # 尝试提取 applicant_payload
     applicant_payload = None
     if 'payload' in properties and isinstance(properties['payload'], dict):
@@ -66,7 +113,6 @@ def extract_raw_run_data(event: Dict, debug: bool = False) -> Optional[Dict]:
         applicant_payload = properties['applicant_payload']
     if isinstance(applicant_payload, str):
         try:
-            import json
             applicant_payload = json.loads(applicant_payload)
         except:
             logging.warning("applicant_payload 不是有效 JSON")
@@ -107,7 +153,7 @@ def fetch_new_runs(db_path: str, api_key: str, project_id: str, max_fetch: int =
     total_fetched = 0
     new_count = 0
     inserted_this_page = 0
-    debug_done = False
+    debug_printed = False
 
     while total_fetched < max_fetch:
         limit = min(1000, max_fetch - total_fetched)
@@ -123,11 +169,10 @@ def fetch_new_runs(db_path: str, api_key: str, project_id: str, max_fetch: int =
                 logging.warning("事件缺少 id，跳过")
                 continue
 
-            # 只在第一页的第一条有效事件打印调试信息
-            if offset == 0 and not debug_done:
-                # 但此时我们还没提取，我们可以传递 debug 标志
+            # 只在第一页的第一条事件打印调试信息
+            if offset == 0 and not debug_printed:
                 raw_data = extract_raw_run_data(ev, debug=True)
-                debug_done = True
+                debug_printed = True
                 if raw_data is None:
                     logging.warning("调试数据提取失败，跳过")
                     continue
