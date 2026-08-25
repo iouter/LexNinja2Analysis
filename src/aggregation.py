@@ -29,7 +29,7 @@ def aggregation(compressed_data: list[dict]) -> list[dict]:
             # ---- 模组判定 ----
             acts: list = data["acts"]
             modifiers: list = data["modifiers"]
-            aggregation_data["is_possible_modded"] = is_valid_acts(acts) and len(modifiers) == 0
+            aggregation_data["is_possible_modded"] = (not is_valid_acts(acts)) or (len(modifiers) != 0)
 
             # ---- 统计容器 ----
             stats: dict[str, set[str] | int] = {}
