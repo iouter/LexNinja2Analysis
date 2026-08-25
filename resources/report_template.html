@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>杀戮尖塔2 · 数据分析报告</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; padding: 20px; color: #2c3e50; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1, h2 { font-weight: 300; margin-bottom: 15px; }
+
+        .filters {
+            background: white; padding: 4px 12px; border-radius: 8px; margin-bottom: 20px;
+            display: flex; flex-wrap: nowrap; gap: 6px; align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            height: 42px; overflow-x: auto;
+        }
+        .filters label {
+            display: inline-flex; align-items: center; gap: 4px;
+            white-space: nowrap; font-size: 1rem;
+        }
+        .filters input, .filters select {
+            padding: 2px 6px; border: 1px solid #ccc; border-radius: 3px;
+            font-size: 0.95rem; height: 28px; line-height: 1.2;
+        }
+        .filters input[type="number"] { width: 70px; }
+        .filters button {
+            padding: 3px 14px; background: #3498db; color: white; border: none;
+            border-radius: 3px; cursor: pointer; font-size: 0.95rem; height: 30px;
+        }
+        .filters > * { flex: 0 1 auto; }
+        .filters label { flex: 0 1 auto; }
+
+        .version-popup {
+            display: none; position: fixed;
+            background: white; border: 1px solid #ccc; border-radius: 6px;
+            padding: 10px; z-index: 999; box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+            min-width: 180px; max-height: 200px; overflow-y: auto;
+        }
+        .version-popup.active { display: block; }
+        .version-popup .popup-title { font-weight: 600; margin-bottom: 5px; font-size: 0.95rem; }
+        .version-popup .checkbox-group { display: flex; flex-direction: column; gap: 3px; }
+        .version-popup .checkbox-group label {
+            font-size: 0.9rem; display: flex; align-items: center; gap: 4px;
+        }
+        .version-btn {
+            background: #ecf0f1; border: 1px solid #ccc; border-radius: 3px;
+            padding: 3px 12px; cursor: pointer; font-size: 0.95rem;
+            height: 30px; line-height: 30px;
+        }
+        .version-btn:hover { background: #d5dbdb; }
+        .filters .version-btn { flex: 0 0 auto; }
+
+        .stats-grid { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; justify-content: center; }
+        .stat-card { background: white; padding: 10px 16px; border-radius: 8px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); flex: 0 0 auto; min-width: 100px; }
+        .stat-card .number { font-size: 1.5rem; font-weight: 600; color: #2980b9; }
+        .stat-card .label { font-size: 0.7rem; color: #7f8c8d; }
+        .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px; }
+        .chart-box { background: white; padding: 15px; border-radius: 8px; }
+        .chart-box.full { grid-column: 1 / -1; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-top: 10px; }
+        th { background: #ecf0f1; padding: 8px; text-align: left; cursor: pointer; user-select: none; position: sticky; top: 0; }
+        th:hover { background: #d5dbdb; }
+        td { padding: 6px 8px; border-bottom: 1px solid #ecf0f1; }
+        tr:hover { background: #f8f9fa; }
+        .table-wrapper { max-height: 400px; overflow-y: auto; margin-top: 5px; }
+        .section { margin-bottom: 30px; }
+        .section h2 { margin-top: 10px; }
+        @media (max-width: 800px) { .chart-row { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>⚔️ 杀戮尖塔2 · 数据洞察报告</h1>
+
+    <div class="filters" id="filters">
+        <button class="version-btn" id="versionBtn">📂 游戏版本</button>
+        <button class="version-btn" id="modVersionBtn">📂 Mod版本</button>
+
+        <label>挑战:
+            <select id="filter_challenge"><option value="">全部</option><option value="true">开</option><option value="false" selected>关</option></select>
+        </label>
+        <label>进阶:
+            <input type="number" id="filter_asc_min" value="0"> ~
+            <input type="number" id="filter_asc_max" value="10">
+        </label>
+        <label>时间(s):
+            <input type="number" id="filter_time_min" placeholder="300"> ~
+            <input type="number" id="filter_time_max" placeholder="">
+        </label>
+        <label>多人:
+            <select id="filter_multi"><option value="">全部</option><option value="true">开</option><option value="false">关</option></select>
+        </label>
+        <label>模组修改:
+            <select id="filter_modded"><option value="">全部</option><option value="true">是</option><option value="false">否</option></select>
+        </label>
+        <!-- 新增平滑下拉框，替代原来的“共xx条” -->
+        <label>平滑:
+            <select id="smoothing">
+                <option value="0">无</option>
+                <option value="1" selected>轻度 (α=1)</option>
+                <option value="2">中度 (α=2)</option>
+                <option value="5">重度 (α=5)</option>
+            </select>
+        </label>
+        <button id="applyFilter">应用筛选</button>
+    </div>
+
+    <div class="version-popup" id="versionPopup">
+        <div class="popup-title">游戏版本（多选）</div>
+        <div class="checkbox-group" id="filter_version_container"></div>
+    </div>
+    <div class="version-popup" id="modVersionPopup">
+        <div class="popup-title">Mod版本（多选）</div>
+        <div class="checkbox-group" id="filter_modversion_container"></div>
+    </div>
+
+    <div class="stats-grid" id="statsGrid"></div>
+
+    <div class="chart-row">
+        <div class="chart-box"><h3>层数到达曲线 (0~52层)</h3><canvas id="floorCurveChart"></canvas></div>
+        <div class="chart-box"><h3>各进阶胜率</h3><canvas id="ascWinChart"></canvas></div>
+    </div>
+
+    <div class="section">
+        <h2>💎 遗物统计</h2>
+        <div class="table-wrapper"><table id="relicTable"><thead><tr><th data-sort="name">名称</th><th data-sort="appear">出现次数</th><th data-sort="deck">最终持有</th><th data-sort="pick">选取次数</th><th data-sort="pickRate">挑选率</th><th data-sort="winRate">胜率</th></tr></thead><tbody></tbody></table></div>
+    </div>
+
+    <div class="section">
+        <h2>🃏 卡牌统计</h2>
+        <div class="table-wrapper"><table id="cardTable"><thead><tr><th data-sort="name">名称</th><th data-sort="appear">出现次数</th><th data-sort="deck">最终持有</th><th data-sort="pick">选取次数</th><th data-sort="pickRate">选取率</th><th data-sort="winRate">胜率</th><th data-sort="winRatePick">选取后胜率</th><th data-sort="winRateSkip">跳过胜率</th><th data-sort="winRateDiff">胜率差</th></tr></thead><tbody></tbody></table></div>
+    </div>
+
+    <div class="section">
+        <h2>⬆️ 卡牌升级统计</h2>
+        <div class="table-wrapper"><table id="upgradeTable"><thead><tr><th data-sort="name">名称</th><th data-sort="avgSeq">平均升级顺位</th><th data-sort="count">升级次数</th><th data-sort="winRate">升级后胜率</th></tr></thead><tbody></tbody></table></div>
+    </div>
+</div>
+
+<script>
+    // ========== 数据嵌入 ==========
+    const rawData = REPLACE_DATA_JSON;
+    const cardNames = REPLACE_CARD_NAMES_JSON;
+    const relicNames = REPLACE_RELIC_NAMES_JSON;
+
+    // ========== 全局表格数据存储 ==========
+    const TABLE_DATA = {};
+
+    // ========== 工具函数 ==========
+    function getCardName(id) { return cardNames[id] || id; }
+    function getRelicName(id) { return relicNames[id] || id; }
+    function isVanillaCard(id) { return cardNames.hasOwnProperty(id); }
+    function isVanillaRelic(id) { return relicNames.hasOwnProperty(id); }
+
+    function median(arr) {
+        if (!arr.length) return 0;
+        const sorted = [...arr].sort((a,b)=>a-b);
+        const mid = Math.floor(sorted.length/2);
+        return sorted.length%2 ? sorted[mid] : (sorted[mid-1]+sorted[mid])/2;
+    }
+
+    function round(v, d=1) { return Math.round(v * Math.pow(10,d)) / Math.pow(10,d); }
+
+    // ========== 智能贝叶斯平滑 ==========
+    function smoothWinRate(wins, total, alpha, prior) {
+        if (total === 0) return null; // 无数据
+        if (alpha === 0) return wins / total; // 无平滑
+        return (wins + alpha * prior) / (total + alpha);
+    }
+
+    // ========== 版本弹出框控制 ==========
+    function setupVersionPopup(btnId, popupId) {
+        const btn = document.getElementById(btnId);
+        const popup = document.getElementById(popupId);
+
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isActive = popup.classList.contains('active');
+            document.querySelectorAll('.version-popup').forEach(p => p.classList.remove('active'));
+            if (!isActive) {
+                const rect = btn.getBoundingClientRect();
+                popup.style.left = rect.left + 'px';
+                popup.style.top = (rect.bottom + 4) + 'px';
+                popup.classList.add('active');
+            }
+        });
+        document.addEventListener('click', () => {
+            document.querySelectorAll('.version-popup').forEach(p => p.classList.remove('active'));
+        });
+        popup.addEventListener('click', (e) => e.stopPropagation());
+    }
+
+    // ========== 初始化版本复选框 ==========
+    function populateVersionSelects() {
+        const versions = new Set();
+        const modVersions = new Set();
+        rawData.forEach(r => {
+            if (r.game_version) versions.add(r.game_version);
+            if (r.lexninja2_version) modVersions.add(r.lexninja2_version);
+        });
+        const container = document.getElementById('filter_version_container');
+        container.innerHTML = '';
+        [...versions].sort().forEach(v => {
+            const label = document.createElement('label');
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.value = v;
+            cb.checked = true;
+            label.appendChild(cb);
+            label.appendChild(document.createTextNode(v));
+            container.appendChild(label);
+        });
+
+        const modContainer = document.getElementById('filter_modversion_container');
+        modContainer.innerHTML = '';
+        [...modVersions].sort().forEach(v => {
+            const label = document.createElement('label');
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.value = v;
+            cb.checked = true;
+            label.appendChild(cb);
+            label.appendChild(document.createTextNode(v));
+            modContainer.appendChild(label);
+        });
+    }
+
+    // ========== 获取选中的版本 ==========
+    function getSelectedVersions(containerId) {
+        const container = document.getElementById(containerId);
+        const cbs = container.querySelectorAll('input[type="checkbox"]:checked');
+        return Array.from(cbs).map(cb => cb.value);
+    }
+
+    // ========== 过滤器逻辑 ==========
+    function filterData(data) {
+        const selectedVersions = getSelectedVersions('filter_version_container');
+        const selectedModVersions = getSelectedVersions('filter_modversion_container');
+        const challenge = document.getElementById('filter_challenge').value;
+        let ascMin = parseFloat(document.getElementById('filter_asc_min').value);
+        if (isNaN(ascMin)) ascMin = -Infinity;
+        let ascMax = parseFloat(document.getElementById('filter_asc_max').value);
+        if (isNaN(ascMax)) ascMax = Infinity;
+        const timeMin = parseFloat(document.getElementById('filter_time_min').value) || 0;
+        const timeMax = parseFloat(document.getElementById('filter_time_max').value) || Infinity;
+        const multi = document.getElementById('filter_multi').value;
+        const modded = document.getElementById('filter_modded').value;
+
+        return data.filter(r => {
+            if (selectedVersions.length > 0 && !selectedVersions.includes(r.game_version)) return false;
+            if (selectedModVersions.length > 0 && !selectedModVersions.includes(r.lexninja2_version)) return false;
+            if (challenge !== '' && String(r.lexninja2_is_challenge_mode) !== challenge) return false;
+            if (r.run_ascension < ascMin || r.run_ascension > ascMax) return false;
+            if (r.run_time_seconds < timeMin || r.run_time_seconds > timeMax) return false;
+            if (multi !== '' && String(r.is_multiplayer) !== multi) return false;
+            if (modded !== '' && String(r.is_possible_modded) !== modded) return false;
+            return true;
+        });
+    }
+
+    // ========== 统计计算 ==========
+    function computeStats(filtered) {
+        const total = filtered.length;
+        if (!total) return null;
+        const victories = filtered.filter(r => r.is_victory).length;
+        const winRate = victories / total;
+        const floors = filtered.map(r => r.run_floor_reached);
+        const times = filtered.map(r => r.run_time_seconds);
+        const ascensions = filtered.map(r => r.run_ascension);
+        const deckSizes = filtered.flatMap(r => r.deck_count || []);
+        const maxHps = filtered.flatMap(r => r.max_hp || []);
+        const relicCounts = filtered.flatMap(r => r.relics_count || []);
+
+        const avgFloor = floors.reduce((a,b)=>a+b,0)/total;
+        const avgTime = times.reduce((a,b)=>a+b,0)/total;
+        const avgAsc = ascensions.reduce((a,b)=>a+b,0)/total;
+        const avgDeck = deckSizes.length ? deckSizes.reduce((a,b)=>a+b,0)/deckSizes.length : 0;
+        const medianDeck = median(deckSizes);
+        const avgMaxHp = maxHps.length ? maxHps.reduce((a,b)=>a+b,0)/maxHps.length : 0;
+        const medianMaxHp = median(maxHps);
+        const avgRelics = relicCounts.length ? relicCounts.reduce((a,b)=>a+b,0)/relicCounts.length : 0;
+        const medianRelics = median(relicCounts);
+
+        return {
+            total, victories, winRate,
+            avgFloor, avgTime, avgAsc,
+            avgDeck, medianDeck,
+            avgMaxHp, medianMaxHp,
+            avgRelics, medianRelics,
+            floors, times, ascensions
+        };
+    }
+
+    // ========== 图表绘制 ==========
+    let floorChart = null;
+    let ascChart = null;
+
+    function renderCharts(filtered) {
+        const stats = computeStats(filtered);
+        if (!stats) return;
+        const { floors, ascensions } = stats;
+
+        const maxFloor = 52;
+        const floorCounts = new Array(maxFloor+1).fill(0);
+        floors.forEach(f => {
+            let ff = f > maxFloor ? maxFloor : f;
+            floorCounts[ff]++;
+        });
+        let cumulative = 0;
+        const reachPct = new Array(maxFloor+1).fill(0);
+        for (let i = maxFloor; i >= 0; i--) {
+            cumulative += floorCounts[i];
+            reachPct[i] = cumulative / floors.length * 100;
+        }
+        const labels = Array.from({length: maxFloor+1}, (_,i) => i);
+
+        if (floorChart) { floorChart.destroy(); floorChart = null; }
+        floorChart = new Chart(document.getElementById('floorCurveChart'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: '到达百分比 (%)',
+                    data: reachPct,
+                    borderColor: '#3498db',
+                    backgroundColor: 'rgba(52,152,219,0.1)',
+                    fill: true,
+                    tension: 0.2,
+                    pointRadius: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, max: 100 }, x: { title: { display: true, text: '层数' } } }
+            }
+        });
+
+        const ascMap = {};
+        filtered.forEach(r => {
+            const a = r.run_ascension;
+            if (!ascMap[a]) ascMap[a] = { total: 0, win: 0 };
+            ascMap[a].total++;
+            if (r.is_victory) ascMap[a].win++;
+        });
+        const ascLabels = Object.keys(ascMap).sort((a,b)=>parseInt(a)-parseInt(b));
+        const ascWinData = ascLabels.map(a => ascMap[a].win / ascMap[a].total * 100);
+        if (ascChart) { ascChart.destroy(); ascChart = null; }
+        ascChart = new Chart(document.getElementById('ascWinChart'), {
+            type: 'bar',
+            data: {
+                labels: ascLabels,
+                datasets: [{
+                    label: '胜率 (%)',
+                    data: ascWinData,
+                    backgroundColor: '#2ecc71',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, max: 100, title: { display: true, text: '胜率 %' } }, x: { title: { display: true, text: '进阶等级' } } }
+            }
+        });
+    }
+
+    // ========== 统计卡片 ==========
+    function renderStatsCards(filtered) {
+        const stats = computeStats(filtered);
+        if (!stats) {
+            document.getElementById('statsGrid').innerHTML = '<div class="stat-card" style="flex:1;text-align:center;">暂无数据</div>';
+            return;
+        }
+        const items1 = [
+            ['总对局', stats.total],
+            ['胜率', round(stats.winRate*100,1)+'%'],
+            ['平均层数', round(stats.avgFloor,1)],
+            ['平均用时(s)', round(stats.avgTime,0)],
+            ['平均进阶', round(stats.avgAsc,1)]
+        ];
+        const items2 = [
+            ['平均卡组', round(stats.avgDeck,1)],
+            ['卡组中位数', stats.medianDeck],
+            ['平均最大HP', round(stats.avgMaxHp,0)],
+            ['HP中位数', stats.medianMaxHp],
+            ['平均遗物数', round(stats.avgRelics,1)],
+            ['遗物中位数', stats.medianRelics]
+        ];
+
+        const cardHtml = (items) => items.map(([label, value]) =>
+            `<div class="stat-card"><div class="number">${value}</div><div class="label">${label}</div></div>`
+        ).join('');
+
+        const html = cardHtml(items1) + '<div style="width:100%; height:0; overflow:hidden;"></div>' + cardHtml(items2);
+        document.getElementById('statsGrid').innerHTML = html;
+    }
+
+    // ========== 通用表格渲染辅助 ==========
+    function renderTable(tableId, rows, columns, valueGetters) {
+        TABLE_DATA[tableId] = { rows, columns, valueGetters };
+        const tbody = document.querySelector(`#${tableId} tbody`);
+        tbody.innerHTML = rows.map(row => {
+            const cells = columns.map(col => {
+                const val = valueGetters[col](row);
+                return `<td>${val}</td>`;
+            }).join('');
+            return `<tr>${cells}</tr>`;
+        }).join('');
+    }
+
+    // ========== 检查是否过滤非原版 ==========
+    function shouldFilterNonVanilla() {
+        return document.getElementById('filter_modded').value === 'false';
+    }
+
+    // ========== 获取平滑参数 ==========
+    function getSmoothingParams(filtered) {
+        const total = filtered.length;
+        const victories = filtered.filter(r => r.is_victory).length;
+        const prior = total > 0 ? victories / total : 0.5;
+        const alpha = parseFloat(document.getElementById('smoothing').value) || 0;
+        return { alpha, prior };
+    }
+
+    // ========== 遗物表格 ==========
+    function renderRelicTable(filtered, alpha, prior) {
+        const filterNonVanilla = shouldFilterNonVanilla();
+        const relicStats = {};
+        filtered.forEach(r => {
+            if (!r.relics) return;
+            Object.keys(r.relics).forEach(relicId => {
+                if (filterNonVanilla && !isVanillaRelic(relicId)) return;
+                const data = r.relics[relicId];
+                if (!relicStats[relicId]) relicStats[relicId] = { appear:0, pick:0, deck:0, wins:0, total:0 };
+                const win = r.is_victory ? 1 : 0;
+                const hasRelic = (typeof data === 'number') ? data > 0 : (data.deck > 0);
+                if (hasRelic) {
+                    relicStats[relicId].deck++;
+                    relicStats[relicId].total++;
+                    if (win) relicStats[relicId].wins++;
+                }
+                const appear = data.appear || 0;
+                const pick = data.pick || 0;
+                relicStats[relicId].appear += appear;
+                relicStats[relicId].pick += pick;
+            });
+        });
+        const rows = Object.keys(relicStats).map(id => {
+            const s = relicStats[id];
+            const pickRate = s.appear > 0 ? s.pick / s.appear : 0;
+            const winRate = smoothWinRate(s.wins, s.total, alpha, prior);
+            return { id, name: getRelicName(id), appear: s.appear, deck: s.deck, pick: s.pick, pickRate, winRate, total: s.total };
+        });
+        rows.sort((a,b) => b.appear - a.appear);
+
+        const columns = ['name', 'appear', 'deck', 'pick', 'pickRate', 'winRate'];
+        const getters = {
+            name: row => row.name,
+            appear: row => row.appear,
+            deck: row => row.deck,
+            pick: row => row.pick,
+            pickRate: row => row.appear ? round(row.pickRate*100,1)+'%' : '-',
+            winRate: row => row.total ? round(row.winRate*100,1)+'%' : '-'
+        };
+        renderTable('relicTable', rows, columns, getters);
+        setupTableSort('relicTable');
+    }
+
+    // ========== 卡牌表格 ==========
+    function renderCardTable(filtered, alpha, prior) {
+        const filterNonVanilla = shouldFilterNonVanilla();
+        const cardStats = {};
+        filtered.forEach(r => {
+            if (!r.cards) return;
+            Object.keys(r.cards).forEach(cardId => {
+                if (filterNonVanilla && !isVanillaCard(cardId)) return;
+                const data = r.cards[cardId];
+                if (!cardStats[cardId]) cardStats[cardId] = { appear:0, pick:0, deck:0, wins:0, total:0, pickWins:0, pickTotal:0, skipWins:0, skipTotal:0 };
+                const s = cardStats[cardId];
+                const appear = data.appear || 0;
+                const pick = data.pick || 0;
+                s.appear += appear;
+                s.pick += pick;
+                const hasDeck = data.deck > 0;
+                if (hasDeck) {
+                    s.deck++;
+                    s.total++;
+                    if (r.is_victory) s.wins++;
+                }
+                if (pick > 0) {
+                    s.pickTotal++;
+                    if (r.is_victory) s.pickWins++;
+                }
+                if (appear - pick > 0) {
+                    s.skipTotal++;
+                    if (r.is_victory) s.skipWins++;
+                }
+            });
+        });
+        const rows = Object.keys(cardStats).map(id => {
+            const s = cardStats[id];
+            const pickRate = s.appear > 0 ? s.pick / s.appear : 0;
+            const winRate = smoothWinRate(s.wins, s.total, alpha, prior);
+            const winRatePick = smoothWinRate(s.pickWins, s.pickTotal, alpha, prior);
+            const winRateSkip = smoothWinRate(s.skipWins, s.skipTotal, alpha, prior);
+            const diff = (winRatePick !== null && winRateSkip !== null) ? winRatePick - winRateSkip : null;
+            return { id, name: getCardName(id), appear: s.appear, deck: s.deck, pick: s.pick, pickRate, winRate, winRatePick, winRateSkip, diff, total: s.total, pickTotal: s.pickTotal, skipTotal: s.skipTotal };
+        });
+        rows.sort((a,b) => b.appear - a.appear);
+
+        const columns = ['name', 'appear', 'deck', 'pick', 'pickRate', 'winRate', 'winRatePick', 'winRateSkip', 'winRateDiff'];
+        const getters = {
+            name: row => row.name,
+            appear: row => row.appear,
+            deck: row => row.deck,
+            pick: row => row.pick,
+            pickRate: row => row.appear ? round(row.pickRate*100,1)+'%' : '-',
+            winRate: row => row.total ? round(row.winRate*100,1)+'%' : '-',
+            winRatePick: row => row.pickTotal ? round(row.winRatePick*100,1)+'%' : '-',
+            winRateSkip: row => row.skipTotal ? round(row.winRateSkip*100,1)+'%' : '-',
+            winRateDiff: row => (row.pickTotal && row.skipTotal) ? round(row.diff*100,1)+'%' : '-'
+        };
+        renderTable('cardTable', rows, columns, getters);
+        setupTableSort('cardTable');
+    }
+
+    // ========== 升级表格 ==========
+    function renderUpgradeTable(filtered, alpha, prior) {
+        const filterNonVanilla = shouldFilterNonVanilla();
+        const upStats = {};
+        filtered.forEach(r => {
+            if (!r.cards) return;
+            Object.keys(r.cards).forEach(cardId => {
+                if (filterNonVanilla && !isVanillaCard(cardId)) return;
+                const data = r.cards[cardId];
+                const seq = data.upgrade_seq || [];
+                const count = seq.length;
+                if (count === 0) return;
+                if (!upStats[cardId]) upStats[cardId] = { seqs: [], wins: 0, total: 0 };
+                upStats[cardId].seqs.push(...seq);
+                upStats[cardId].total++;
+                if (r.is_victory) upStats[cardId].wins++;
+            });
+        });
+        const rows = Object.keys(upStats).map(id => {
+            const s = upStats[id];
+            const avgSeq = s.seqs.length ? s.seqs.reduce((a,b)=>a+b,0) / s.seqs.length : 0;
+            const winRate = smoothWinRate(s.wins, s.total, alpha, prior);
+            return { id, name: getCardName(id), avgSeq, count: s.seqs.length, winRate, total: s.total };
+        });
+        rows.sort((a,b) => b.count - a.count);
+
+        const columns = ['name', 'avgSeq', 'count', 'winRate'];
+        const getters = {
+            name: row => row.name,
+            avgSeq: row => round(row.avgSeq,2),
+            count: row => row.count,
+            winRate: row => row.total ? round(row.winRate*100,1)+'%' : '-'
+        };
+        renderTable('upgradeTable', rows, columns, getters);
+        setupTableSort('upgradeTable');
+    }
+
+    // ========== 表格排序功能 ==========
+    function setupTableSort(tableId) {
+        const table = document.getElementById(tableId);
+        const headers = table.querySelectorAll('th');
+        let currentSort = { key: null, asc: true };
+
+        headers.forEach((th) => {
+            const key = th.dataset.sort || 'name';
+            th.style.cursor = 'pointer';
+            th.addEventListener('click', () => {
+                const asc = (currentSort.key === key) ? !currentSort.asc : true;
+                currentSort = { key, asc };
+                const data = TABLE_DATA[tableId];
+                const sorted = [...data.rows].sort((a,b) => {
+                    const va = data.valueGetters[key](a);
+                    const vb = data.valueGetters[key](b);
+                    const numA = parseFloat(va);
+                    const numB = parseFloat(vb);
+                    if (!isNaN(numA) && !isNaN(numB)) {
+                        return asc ? numA - numB : numB - numA;
+                    }
+                    return asc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+                });
+                const tbody = table.querySelector('tbody');
+                tbody.innerHTML = sorted.map(row => {
+                    const cells = data.columns.map(col => {
+                        const val = data.valueGetters[col](row);
+                        return `<td>${val}</td>`;
+                    }).join('');
+                    return `<tr>${cells}</tr>`;
+                }).join('');
+            });
+        });
+    }
+
+    // ========== 主渲染 ==========
+    function applyFiltersAndRender() {
+        const filtered = filterData(rawData);
+        const { alpha, prior } = getSmoothingParams(filtered);
+
+        renderStatsCards(filtered);
+        renderCharts(filtered);
+        renderRelicTable(filtered, alpha, prior);
+        renderCardTable(filtered, alpha, prior);
+        renderUpgradeTable(filtered, alpha, prior);
+    }
+
+    // ========== 初始化 ==========
+    window.onload = function() {
+        populateVersionSelects();
+        setupVersionPopup('versionBtn', 'versionPopup');
+        setupVersionPopup('modVersionBtn', 'modVersionPopup');
+        document.getElementById('applyFilter').addEventListener('click', applyFiltersAndRender);
+        document.querySelectorAll('#filters input, #filters select').forEach(el => {
+            el.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyFiltersAndRender(); });
+        });
+        applyFiltersAndRender();
+    };
+</script>
+</body>
+</html>
