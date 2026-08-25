@@ -102,6 +102,12 @@ class RunDataCompressor:
         self._deep_remove_key(self.compressed_data, "save_dict_List[BaseLib.Abstracts.CardModifier+ModifierSave]")
 
     def _is_invalid(self) -> bool:
+        # 先检查是否是 LexNinja2 数据，不是则直接视为无效
+        private = self.raw_data.get("private_contributions", {})
+        if "LexNinja2" not in private:
+            return True
+
+        # 正常检查
         return (
             self._get_lexninja_context()["is_dirty_data"]
             or self.raw_data["run_game_mode"] != "Standard"
@@ -124,5 +130,12 @@ class RunDataCompressor:
         return self.raw_data["applicant_payload"]["run_history"]
 
 def compress_run(raw_data: dict) -> dict | None:
-    compressor = RunDataCompressor(raw_data)
-    return compressor.compressed_data
+    """包装器：捕获所有异常，失败则返回 None"""
+    try:
+        compressor = RunDataCompressor(raw_data)
+        return compressor.compressed_data
+    except Exception as e:
+        # 记录日志（使用 logging 或 print）
+        import logging
+        logging.warning(f"压缩失败，跳过该条数据: {e}")
+        return None

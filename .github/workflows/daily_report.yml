@@ -20,13 +20,24 @@ jobs:
       - name: 安装依赖
         run: uv sync
 
+      # ✅ 改进：使用分支名作为缓存键，每次运行覆盖同一个缓存，避免堆积
       - name: 恢复 SQLite 缓存
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         id: cache-db
         with:
           path: data.db
-          key: db-cache-${{ github.run_id }}
-          restore-keys: db-cache-
+          key: db-cache-${{ github.ref_name }}
+          restore-keys: |
+            db-cache-${{ github.ref_name }}
+
+      - name: 检查数据库文件（验证缓存是否命中）
+        run: |
+          if [ -f "data.db" ]; then
+            echo "✅ 成功从缓存恢复数据库，大小："
+            ls -lh data.db
+          else
+            echo "ℹ️ 首次运行或缓存未命中，将新建数据库"
+          fi
 
       - name: 运行主程序
         env:

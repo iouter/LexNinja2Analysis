@@ -18,7 +18,6 @@ def main():
     db_path = os.environ.get('DB_PATH', 'data.db')
     logging.info(f"数据库路径: {db_path}")
 
-    # 拉取新数据
     logging.info("开始拉取新对局...")
     new_count = fetch_new_runs(db_path, api_key, project_id, max_fetch=5000)
     logging.info(f"新增 {new_count} 条记录")
@@ -32,16 +31,13 @@ def main():
         conn.close()
         return
 
-    # 读取全部压缩数据
     compressed_list = get_all_compressed_runs(conn)
     logging.info(f"成功读取 {len(compressed_list)} 条压缩数据")
 
-    # 聚合
     logging.info("开始聚合...")
     agg_data = aggregation(compressed_list)
     logging.info(f"聚合得到 {len(agg_data)} 条汇总记录")
 
-    # 生成报告
     logging.info("生成 HTML 报告...")
     write_report(agg_data, "report.html")
     logging.info("报告已保存为 report.html")
