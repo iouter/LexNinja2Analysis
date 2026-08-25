@@ -2,6 +2,7 @@ import requests
 import time
 import logging
 import json
+import os
 from typing import Optional, List, Dict
 from src.compress import compress_run
 from src.db import insert_run, init_db
@@ -113,7 +114,7 @@ def extract_raw_run_data(event: Dict) -> Optional[Dict]:
         'run_time_seconds': properties.get('run_time_seconds'),
         'is_abandoned': properties.get('is_abandoned', False),
         'is_victory': properties.get('is_victory', False),
-        'applicant_payload': applicant_payload,  # 直接传入整个 applicant_payload
+        'applicant_payload': applicant_payload,
         'private_contributions': private_contributions
     }
 
@@ -128,7 +129,7 @@ def fetch_new_runs(db_path: str, api_key: str, project_id: str, max_fetch: Optio
     offset = 0
     total_fetched = 0
     new_count = 0
-    printed_first = False   # 标记是否已打印
+    printed_first = False
 
     while max_fetch is None or total_fetched < max_fetch:
         limit = 1000
@@ -153,22 +154,26 @@ def fetch_new_runs(db_path: str, api_key: str, project_id: str, max_fetch: Optio
                 continue
 
             raw_data = extract_raw_run_data(ev)
+
+            # 🔍 强制打印第一条数据（无论是否成功）
+            if not printed_first:
+                print("=" * 80, flush=True)
+                print("🔍 调试：第一条事件 raw_data 内容", flush=True)
+                if raw_data is None:
+                    print("raw_data 为 None", flush=True)
+                else:
+                    try:
+                        print(json.dumps(raw_data, indent=2, ensure_ascii=False, default=str), flush=True)
+                    except Exception as e:
+                        print(f"打印 raw_data 失败: {e}", flush=True)
+                        print(f"raw_data keys: {list(raw_data.keys())}", flush=True)
+                print("=" * 80, flush=True)
+                printed_first = True
+                # 如果只希望处理一条后退出，取消注释下面 break
+                # break
+
             if raw_data is None:
                 continue
-
-            # 🔍 打印第一条完整 raw_data（调试用）
-            if not printed_first:
-                print("=" * 80)
-                print("🔍 调试：打印第一条 raw_data 完整内容")
-                try:
-                    print(json.dumps(raw_data, indent=2, ensure_ascii=False, default=str))
-                except Exception as e:
-                    print(f"打印失败: {e}")
-                    print(f"raw_data keys: {list(raw_data.keys())}")
-                print("=" * 80)
-                printed_first = True
-                # 如需在打印后停止，取消下面注释：
-                # break
 
             compressed = compress_run(raw_data)
             if compressed is None:
@@ -180,7 +185,8 @@ def fetch_new_runs(db_path: str, api_key: str, project_id: str, max_fetch: Optio
                 inserted_this_page += 1
 
         # 如果上面的 break 被取消，这里也需要跳出外层循环
-        # if printed_first: break
+        # if printed_first:
+        #     break
 
         total_fetched += len(events)
         offset += len(events)
