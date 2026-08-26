@@ -5,6 +5,11 @@ on:
     - cron: '0 0 * * *'
   workflow_dispatch:
 
+# 为清理缓存需要 actions: write 权限
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,14 +25,18 @@ jobs:
       - name: 安装依赖
         run: uv sync
 
+      - name: 获取当前日期
+        id: date
+        run: echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
+
       - name: 恢复 SQLite 缓存
         uses: actions/cache/restore@v4
         id: restore-cache
         with:
           path: data.db
-          key: db-cache-${{ github.ref_name }}
+          key: db-cache-${{ github.ref_name }}-${{ steps.date.outputs.date }}
           restore-keys: |
-            db-cache-${{ github.ref_name }}
+            db-cache-${{ github.ref_name }}-
 
       - name: 检查数据库文件
         run: |
@@ -45,11 +54,55 @@ jobs:
           DB_PATH: data.db
         run: uv run python main.py
 
-      - name: 保存 SQLite 缓存（覆盖更新）
+      - name: 保存 SQLite 缓存
         uses: actions/cache/save@v4
+        if: always()
         with:
           path: data.db
-          key: db-cache-${{ github.ref_name }}
+          key: db-cache-${{ github.ref_name }}-${{ steps.date.outputs.date }}
+
+      # 清理步骤：删除当前分支 3 天前的缓存，保留最近 3 天
+      - name: 清理旧缓存（保留最近 3 天）
+        if: always()
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          TODAY="${{ steps.date.outputs.date }}"
+          # 计算 3 天前的日期
+          CUTOFF=$(date -d "$TODAY - 3 days" +'%Y%m%d')
+
+          echo "当前分支: $BRANCH"
+          echo "今天日期: $TODAY"
+          echo "保留日期阈值: $CUTOFF"
+
+          # 获取所有缓存
+          CACHES=$(gh api -H "Accept: application/vnd.github+json" \
+            /repos/${{ github.repository }}/actions/caches \
+            --paginate --jq '.actions_caches[] | select(.key | startswith("db-cache-$BRANCH-")) | {key: .key, created_at: .created_at}')
+
+          if [ -z "$CACHES" ]; then
+            echo "没有找到匹配的缓存"
+            exit 0
+          fi
+
+          echo "$CACHES" | jq -c '.' | while read -r item; do
+            key=$(echo "$item" | jq -r '.key')
+            created_at=$(echo "$item" | jq -r '.created_at')
+            # 提取缓存中的日期部分（假设格式为 db-cache-branch-YYYYMMDD）
+            key_date=${key##*-}
+            if [[ $key_date =~ ^[0-9]{8}$ ]]; then
+              # 如果缓存日期小于截止日期，则删除
+              if [[ $key_date < $CUTOFF ]]; then
+                echo "删除旧缓存: $key (创建于 $created_at)"
+                gh api -X DELETE /repos/${{ github.repository }}/actions/caches/$key || echo "删除失败，可能已被删除"
+              else
+                echo "保留缓存: $key"
+              fi
+            else
+              echo "跳过非标准 key: $key"
+            fi
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: 上传报告
         uses: actions/upload-artifact@v4
