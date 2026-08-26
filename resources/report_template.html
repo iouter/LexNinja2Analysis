@@ -97,7 +97,6 @@
         <label>模组修改:
             <select id="filter_modded"><option value="">全部</option><option value="true">是</option><option value="false">否</option></select>
         </label>
-        <!-- 新增平滑下拉框，替代原来的“共xx条” -->
         <label>平滑:
             <select id="smoothing">
                 <option value="0">无</option>
@@ -142,8 +141,8 @@
 </div>
 
 <script>
-    // ========== 数据嵌入 ==========
-    const rawData = REPLACE_DATA_JSON;
+    // ========== 数据嵌入（压缩） ==========
+    const compressedDataBase64 = "REPLACE_DATA_BASE64";
     const cardNames = REPLACE_CARD_NAMES_JSON;
     const relicNames = REPLACE_RELIC_NAMES_JSON;
 
@@ -167,8 +166,8 @@
 
     // ========== 智能贝叶斯平滑 ==========
     function smoothWinRate(wins, total, alpha, prior) {
-        if (total === 0) return null; // 无数据
-        if (alpha === 0) return wins / total; // 无平滑
+        if (total === 0) return null;
+        if (alpha === 0) return wins / total;
         return (wins + alpha * prior) / (total + alpha);
     }
 
@@ -195,7 +194,7 @@
     }
 
     // ========== 初始化版本复选框 ==========
-    function populateVersionSelects() {
+    function populateVersionSelects(rawData) {
         const versions = new Set();
         const modVersions = new Set();
         rawData.forEach(r => {
@@ -601,8 +600,43 @@
         });
     }
 
+    // ========== 解压数据 ==========
+    async function decompressData(base64Str) {
+        // 如果是空字符串，返回空数组
+        if (!base64Str) return [];
+        try {
+            // 解码 base64
+            const binaryString = atob(base64Str);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            // 使用 DecompressionStream 解压
+            const ds = new DecompressionStream('gzip');
+            const writer = ds.writable.getWriter();
+            writer.write(bytes);
+            writer.close();
+            const reader = ds.readable.getReader();
+            let result = '';
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                result += new TextDecoder().decode(value);
+            }
+            return JSON.parse(result);
+        } catch (e) {
+            console.error('解压数据失败:', e);
+            // 兼容尝试直接解析（如果数据未压缩）
+            try {
+                return JSON.parse(base64Str);
+            } catch (_) {
+                return [];
+            }
+        }
+    }
+
     // ========== 主渲染 ==========
-    function applyFiltersAndRender() {
+    async function applyFiltersAndRender(rawData) {
         const filtered = filterData(rawData);
         const { alpha, prior } = getSmoothingParams(filtered);
 
@@ -614,15 +648,20 @@
     }
 
     // ========== 初始化 ==========
-    window.onload = function() {
-        populateVersionSelects();
+    window.onload = async function() {
+        // 解压数据
+        let rawData = await decompressData(compressedDataBase64);
+        // 如果解压失败，置空
+        if (!Array.isArray(rawData)) rawData = [];
+
+        populateVersionSelects(rawData);
         setupVersionPopup('versionBtn', 'versionPopup');
         setupVersionPopup('modVersionBtn', 'modVersionPopup');
-        document.getElementById('applyFilter').addEventListener('click', applyFiltersAndRender);
+        document.getElementById('applyFilter').addEventListener('click', () => applyFiltersAndRender(rawData));
         document.querySelectorAll('#filters input, #filters select').forEach(el => {
-            el.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyFiltersAndRender(); });
+            el.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyFiltersAndRender(rawData); });
         });
-        applyFiltersAndRender();
+        await applyFiltersAndRender(rawData);
     };
 </script>
 </body>
