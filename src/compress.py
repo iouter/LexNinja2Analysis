@@ -3,11 +3,11 @@ from src.utils import GAME_ITEMS, get_card, is_valid_acts, extract_lexninja2_ver
 
 class RunDataCompressor:
     VERSION_RULES = [
-        (["3.0.0", "3.0.1", "3.0.2", "3.0.3", "3.0.4", "3.0.5", "3.0.6", "3.0.7", "3.0.8"], "0.107.1", True),
+        (["3.0.0", "3.0.1", "3.0.2", "3.0.3", "3.0.4", "3.0.5", "3.0.6", "3.0.7", "3.0.8", "3.0.9"], "0.107.1", True),
         (["3.0.4-beta"], "0.108.", False),
         (["3.0.5-beta", "3.0.6-beta"], "0.109.", False),
         (["3.0.7-beta"], "0.110.", False),
-        (["3.0.8-beta"], "0.111.", False),
+        (["3.0.8-beta", "3.0.9-beta"], "0.111.", False),
     ]
 
     def __init__(self, raw_data: dict):
