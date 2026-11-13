@@ -8,6 +8,7 @@ class RunDataCompressor:
         (["3.0.5-beta", "3.0.6-beta"], "0.109.", False),
         (["3.0.7-beta"], "0.110.", False),
         (["3.0.8-beta", "3.0.9-beta", "3.0.10-beta", "3.0.11-beta"], "0.111.", False),
+        (["3.1.0-beta", "0.113.", False])
     ]
 
     def __init__(self, raw_data: dict):
